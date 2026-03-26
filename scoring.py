@@ -6,6 +6,18 @@ Based on historical analysis of 3,965 MLB games (Mar-Apr 2024):
 - 96%+ confidence: 60.8% win rate
 - 3-4 star value: 66-69% win rate
 - ML recommendations: 72.2% accurate
+
+Live calibration (38 resolved picks, Mar 24 2026):
+- Edge 0-15:  29% WR → filter to LEAN
+- Edge 15-25: 57% WR → BET threshold
+- Edge 25+:   75% WR → STRONG BET threshold
+
+Sport-specific calibration (38 resolved picks, cleaned of duplicates):
+- NBA: 67% WR (n=13, 8W/4L/1P) → reliable, standard thresholds
+- NHL: 50% WR (n=25, 12W/12L/1P) → BET max (no STRONG BET until WR >60% with n>=30)
+  - Note: Previous 46% WR was inflated by duplicate entries — true WR is 50%
+
+Updated: 2026-03-24
 """
 
 from dataclasses import dataclass, field
@@ -180,18 +192,68 @@ class ConfidenceScorer:
         
         return round(min(max(final, 0), 100), 1)
     
+    # Sport-specific thresholds (calibrated from live results 2026-03-24)
+    # NBA: 67% WR (6W/3L) → standard thresholds
+    # NHL: 50% WR (12W/12L) → cap at BET max, no STRONG BET until sample >= 30
+    # Sample sizes: NBA=13, NHL=25 resolved picks
+    SPORT_THRESHOLDS = {
+        "NHL": {
+            "strong_bet_edge": 999,  # DISABLED: NHL 50% WR at STRONG BET — not enough edge
+            "strong_bet_conf": 999,  # Cap NHL at BET max until sample >= 30 with >60% WR
+            "bet_edge": 25,          # Stricter than NBA — 25% edge required for BET
+            "bet_conf": 75,
+            "lean_edge": 15,
+            "lean_conf": 65,
+        },
+        "NBA": {
+            "strong_bet_edge": 25,   # Standard thresholds (NBA 67% WR — reliable)
+            "strong_bet_conf": 75,
+            "bet_edge": 15,
+            "bet_conf": 65,
+            "lean_edge": 8,
+            "lean_conf": 55,
+        },
+        # MLB: Opening Day 2026 = Mar 25. Using NBA thresholds as baseline.
+        # Calibrate after 30+ resolved picks (target: end of April).
+        "MLB": {
+            "strong_bet_edge": 25,   # Baseline — recalibrate after 30+ picks
+            "strong_bet_conf": 75,
+            "bet_edge": 15,
+            "bet_conf": 65,
+            "lean_edge": 8,
+            "lean_conf": 55,
+        },
+        # Default (other sports — use NBA thresholds until enough data)
+        "DEFAULT": {
+            "strong_bet_edge": 25,
+            "strong_bet_conf": 75,
+            "bet_edge": 15,
+            "bet_conf": 65,
+            "lean_edge": 8,
+            "lean_conf": 55,
+        },
+    }
+
     def get_recommendation(
         self,
         confidence: float,
         edge: float,
         value_rating: int,
+        sport: str = "DEFAULT",
     ) -> tuple[str, list[str]]:
         """
         Get recommendation based on all factors.
         
+        Sport-specific thresholds applied based on live historical WR:
+        - NBA: 75% WR → standard thresholds
+        - NHL: 46% WR → stricter thresholds (+5% edge at each tier)
+        
         Returns (recommendation, reasons)
         """
         reasons = []
+        
+        # Get sport-specific thresholds
+        thresholds = self.SPORT_THRESHOLDS.get(sport.upper(), self.SPORT_THRESHOLDS["DEFAULT"])
         
         # Must have positive edge (70% WR historically)
         if edge <= 0:
@@ -217,15 +279,12 @@ class ConfidenceScorer:
         else:
             reasons.append(f"Low value ({value_rating}★)")
         
-        # Final recommendation based on historical performance:
-        # - +Edge bets: 70% WR
-        # - 96%+ conf: 60.8% WR
-        # - 3-4 star: 66-69% WR
-        if edge >= 8 and confidence >= 75:
+        # Sport-calibrated recommendation
+        if edge >= thresholds["strong_bet_edge"] and confidence >= thresholds["strong_bet_conf"]:
             return "STRONG BET", reasons
-        elif edge >= 5 and confidence >= 65:
+        elif edge >= thresholds["bet_edge"] and confidence >= thresholds["bet_conf"]:
             return "BET", reasons
-        elif edge >= 2 and confidence >= 55:
+        elif edge >= thresholds["lean_edge"] and confidence >= thresholds["lean_conf"]:
             return "LEAN", reasons
         elif edge > 0:
             return "LEAN", reasons
@@ -259,9 +318,9 @@ class ConfidenceScorer:
         )
         value_rating = self.calculate_value_rating(edge, confidence)
         
-        # Get recommendation
+        # Get recommendation (with sport-specific thresholds)
         recommendation, reasons = self.get_recommendation(
-            confidence, edge, value_rating
+            confidence, edge, value_rating, sport
         )
         
         return ScoredPick(

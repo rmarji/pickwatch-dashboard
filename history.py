@@ -140,6 +140,15 @@ class PickHistory:
         )
         
         with sqlite3.connect(self.db_path) as conn:
+            # Dedup guard: skip if same game_id+pick_team already exists (any date)
+            existing = conn.execute(
+                "SELECT id FROM picks WHERE game_id = ? AND pick_team = ? AND pick_type = ?",
+                (tracked.game_id, tracked.pick_team, tracked.pick_type)
+            ).fetchone()
+            if existing:
+                tracked.id = existing[0]
+                return tracked  # Already tracked — skip duplicate
+            
             cursor = conn.execute("""
                 INSERT OR REPLACE INTO picks (
                     date, sport, game_id, matchup, pick_team, pick_type,

@@ -22,19 +22,38 @@ from scoring import ConfidenceScorer, ScoredPick
 
 
 def get_active_sports() -> list[str]:
-    """Return sports in season based on current month."""
-    month = datetime.now().month
+    """Return sports in season based on current date.
     
-    # Approximate seasons (US leagues)
-    if month in [9, 10, 11, 12, 1]:  # Sep-Jan: NFL, NHL, NBA
-        return ["nba", "nhl"]
-    elif month in [2, 3]:  # Feb-Mar: NHL, NBA
-        return ["nba", "nhl"]
-    elif month in [4, 5, 6]:  # Apr-Jun: NHL playoffs, NBA playoffs, MLB
-        return ["nba", "nhl", "mlb"]
-    elif month in [7, 8]:  # Jul-Aug: MLB only
-        return ["mlb"]
-    return ["nba"]
+    Season ranges (US leagues):
+    - NBA:  Oct 15 - Jun 30
+    - NHL:  Oct 15 - Jun 30
+    - NFL:  Sep 1  - Feb 28
+    - MLB:  Mar 25 - Sep 30  (Opening Day 2026 is Mar 25; spring training before that = preseason)
+    
+    MLB is gated to Mar 25+ (Opening Day 2026). Spring training games before that are NOT real picks.
+    """
+    today = datetime.now().date()
+    month = today.month
+    day = today.day
+    active = []
+
+    # NBA: Oct 15 – Jun 30
+    if (month == 10 and day >= 15) or month in [11, 12, 1, 2, 3, 4, 5] or (month == 6 and day <= 30):
+        active.append("nba")
+
+    # NHL: Oct 15 – Jun 30
+    if (month == 10 and day >= 15) or month in [11, 12, 1, 2, 3, 4, 5] or (month == 6 and day <= 30):
+        active.append("nhl")
+
+    # NFL: Sep 1 – Feb 28
+    if month in [9, 10, 11, 12, 1, 2]:
+        active.append("nfl")
+
+    # MLB: Mar 25 – Sep 30 (Opening Day 2026 = Mar 25; no spring training before that)
+    if (month == 3 and day >= 25) or month in [4, 5, 6, 7, 8] or (month == 9 and day <= 30):
+        active.append("mlb")
+
+    return active if active else ["nba"]
 
 
 def score_games(games, scorer) -> list[ScoredPick]:

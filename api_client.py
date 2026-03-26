@@ -72,24 +72,38 @@ class GameData:
 class PickwatchAPI:
     """Unified Pickwatch API client using stdlib."""
     
-    BASE_URL = "https://api.pickwatch.com/v1"
+    # Direct API (may be blocked by Cloudflare from datacenter IPs)
+    DIRECT_URL = "https://api.pickwatch.com/v1"
+    # n8n proxy (bypasses Cloudflare blocking) - pass path as query param
+    PROXY_URL = "https://n8n.claw.jogeeks.com/webhook/pickwatch-proxy"
     
-    def __init__(self, token: Optional[str] = None):
+    def __init__(self, token: Optional[str] = None, use_proxy: bool = True):
         self.token = token or os.getenv("PICKWATCH_TOKEN")
-        if not self.token:
-            raise ValueError("PICKWATCH_TOKEN required")
+        self.use_proxy = use_proxy
+        if not self.token and not use_proxy:
+            raise ValueError("PICKWATCH_TOKEN required when not using proxy")
         # SSL context
         self._ssl_ctx = ssl.create_default_context()
     
     def _get(self, path: str, origin: str = "https://nflpickwatch.com") -> dict | list:
-        url = f"{self.BASE_URL}{path}"
-        headers = {
-            "Authorization": f"Bearer {self.token}",
-            "Origin": origin,
-            "Referer": f"{origin}/",
-            "Accept": "application/json",
-            "User-Agent": "Mozilla/5.0",
-        }
+        # Use proxy by default (token baked into n8n workflow)
+        if self.use_proxy:
+            # Pass path as query parameter
+            from urllib.parse import quote
+            url = f"{self.PROXY_URL}?path={quote(path, safe='')}"
+            headers = {
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0",
+            }
+        else:
+            url = f"{self.DIRECT_URL}{path}"
+            headers = {
+                "Authorization": f"Bearer {self.token}",
+                "Origin": origin,
+                "Referer": f"{origin}/",
+                "Accept": "application/json",
+                "User-Agent": "Mozilla/5.0",
+            }
         
         req = Request(url, headers=headers)
         try:
