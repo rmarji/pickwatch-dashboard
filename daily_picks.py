@@ -19,6 +19,7 @@ if os.path.exists(CONFIG_PATH):
 
 from api_client import PickwatchAPI
 from scoring import ConfidenceScorer, ScoredPick
+from history import PickHistory
 
 
 def get_active_sports() -> list[str]:
@@ -156,12 +157,27 @@ def main():
     
     sports = get_active_sports()
     all_reports = []
+    history = PickHistory()
+    total_saved = 0
     
     for sport in sports:
         try:
             games = api.get_games_with_cpu(sport, year, today)
             if games:
                 picks = score_games(games, scorer)
+                
+                # Save all actionable picks to history DB
+                saved = 0
+                for pick in picks:
+                    if pick.recommendation not in ("PASS",):
+                        try:
+                            tracked = history.add_pick(pick)
+                            if tracked.id:
+                                saved += 1
+                        except Exception:
+                            pass
+                total_saved += saved
+                
                 report = format_telegram(picks, sport)
                 all_reports.append(report)
         except Exception as e:
@@ -169,6 +185,8 @@ def main():
     
     if all_reports:
         print("\n\n".join(all_reports))
+        if total_saved:
+            print(f"\n📝 {total_saved} picks saved to history")
     else:
         print("No games today across all sports")
 

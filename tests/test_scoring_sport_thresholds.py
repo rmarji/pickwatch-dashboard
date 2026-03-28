@@ -1,10 +1,12 @@
 """
 Tests for sport-specific scoring thresholds.
 
-Verifies that NHL uses stricter thresholds than NBA based on
-historical win rates (38 resolved picks, cleaned data 2026-03-24):
-- NBA: 67% WR (n=13) → standard thresholds
-- NHL: 50% WR (n=25) → BET max (no STRONG BET until WR improves)
+Verifies sport-calibrated recommendation thresholds based on
+historical win rates (52 resolved picks, 2026-03-28):
+- NBA BET: 67% WR (n=7) → standard BET thresholds
+- NHL BET: 50% WR (n=23) → stricter BET thresholds
+- MLB: NO DATA (strict early-season thresholds)
+- STRONG BET: DISABLED for all sports (47.6% WR overall vs BET at 53.6%)
 """
 
 import unittest
@@ -76,10 +78,11 @@ class TestSportSpecificThresholds(unittest.TestCase):
 
     # ─── NBA Threshold Tests ──────────────────────────────────────────────
 
-    def test_nba_strong_bet_at_edge_25(self):
-        """NBA STRONG BET at edge >= 25, conf >= 75."""
+    def test_nba_no_strong_bet_after_cal(self):
+        """NBA STRONG BET disabled after calibration showed 44% WR (worse than BET)."""
+        # NBA now caps at BET (same as NHL/MLB)
         rec = self._get_rec("NBA", 25, 76)
-        self.assertEqual(rec, "STRONG BET")
+        self.assertEqual(rec, "BET", "NBA should return BET (STRONG BET disabled, 44% WR)")
 
     def test_nba_bet_at_edge_15(self):
         """NBA BET at edge >= 15, conf >= 65."""
@@ -91,13 +94,19 @@ class TestSportSpecificThresholds(unittest.TestCase):
         rec = self._get_rec("NBA", 9, 58)
         self.assertEqual(rec, "LEAN")
 
+    def test_nba_pass_on_negative_edge(self):
+        """NBA PASS on negative edge."""
+        rec = self._get_rec("NBA", -5, 80)
+        self.assertEqual(rec, "PASS")
+
     # ─── Differential Tests ──────────────────────────────────────────────
 
-    def test_nba_vs_nhl_same_edge_different_rec(self):
-        """Same edge=25 gets STRONG BET for NBA but BET for NHL."""
+    def test_nba_vs_nhl_same_edge_same_rec(self):
+        """Same edge=25 returns BET for both NBA and NHL (STRONG BET disabled)."""
         nba_rec = self._get_rec("NBA", 25, 78)
         nhl_rec = self._get_rec("NHL", 25, 78)
-        self.assertEqual(nba_rec, "STRONG BET")
+        # Both now cap at BET (STRONG BET disabled)
+        self.assertEqual(nba_rec, "BET")
         self.assertEqual(nhl_rec, "BET")
 
     def test_nba_vs_nhl_edge_22_different_rec(self):
@@ -116,14 +125,27 @@ class TestSportSpecificThresholds(unittest.TestCase):
 
     # ─── Default (MLB) Threshold Tests ───────────────────────────────────
 
-    def test_mlb_uses_default_thresholds(self):
-        """MLB (unknown sport) uses DEFAULT thresholds (same as NBA)."""
+    def test_mlb_uses_strict_early_season_thresholds(self):
+        """MLB uses strict early-season thresholds (STRONG BET disabled, bet_edge=35).
+        
+        Early-season expert panels are small → consensus inflates edge artificially.
+        MLB edges of 25% that would be BET in NBA → LEAN in MLB until calibrated.
+        Recalibrate after 30+ resolved picks (~late April 2026).
+        """
+        # Edge 25/conf 78: NBA = BET, MLB = LEAN (strict thresholds)
         mlb_rec = self._get_rec("MLB", 25, 78)
-        nba_rec = self._get_rec("NBA", 25, 78)
-        self.assertEqual(mlb_rec, nba_rec)
+        self.assertEqual(mlb_rec, "LEAN", "MLB edge=25 should be LEAN (strict early-season)")
+        
+        # Edge 40/conf 85: MLB = BET (above 35% edge threshold)
+        mlb_bet_rec = self._get_rec("MLB", 40, 85)
+        self.assertEqual(mlb_bet_rec, "BET", "MLB edge=40/conf=85 should be BET")
+        
+        # Edge 40/conf 95: MLB = BET (STRONG BET disabled, caps at BET)
+        mlb_strong_rec = self._get_rec("MLB", 40, 95)
+        self.assertEqual(mlb_strong_rec, "BET", "MLB STRONG BET should be disabled (no WR data)")
 
     def test_unknown_sport_uses_default(self):
-        """Unknown sport falls back to DEFAULT thresholds."""
+        """Unknown sport falls back to DEFAULT thresholds (STRONG BET disabled)."""
         unknown_rec = self._get_rec("UNKNOWN", 25, 78)
         default_rec = self._get_rec("DEFAULT", 25, 78)
         self.assertEqual(unknown_rec, default_rec)
@@ -132,7 +154,7 @@ class TestSportSpecificThresholds(unittest.TestCase):
 
     def test_score_pick_passes_sport_to_recommendation(self):
         """score_pick correctly passes sport to get_recommendation."""
-        # NHL pick with edge that would be STRONG BET in NBA
+        # NHL pick with edge that would be BET in NBA
         nhl_pick = self.scorer.score_pick(
             1, "NHL", "A @ B", "A", "ML", -110,
             cpu_confidence=0.83, expert_pct=85, fan_pct=80
@@ -144,9 +166,9 @@ class TestSportSpecificThresholds(unittest.TestCase):
         # NHL should NEVER be STRONG BET
         self.assertNotEqual(nhl_pick.recommendation, "STRONG BET",
                             "NHL should never return STRONG BET")
-        # NBA with high confidence/edge should be STRONG BET
-        if nba_pick.edge >= 25:
-            self.assertEqual(nba_pick.recommendation, "STRONG BET")
+        # NBA with high confidence/edge should be BET (STRONG BET disabled)
+        self.assertEqual(nba_pick.recommendation, "BET",
+                         "NBA should return BET (STRONG BET disabled)")
 
     def test_nhl_pass_on_low_confidence(self):
         """NHL pick with low confidence returns PASS."""

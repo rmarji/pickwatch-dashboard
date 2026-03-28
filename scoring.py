@@ -7,17 +7,21 @@ Based on historical analysis of 3,965 MLB games (Mar-Apr 2024):
 - 3-4 star value: 66-69% win rate
 - ML recommendations: 72.2% accurate
 
-Live calibration (38 resolved picks, Mar 24 2026):
-- Edge 0-15:  29% WR → filter to LEAN
-- Edge 15-25: 57% WR → BET threshold
-- Edge 25+:   75% WR → STRONG BET threshold
+Live calibration (52 resolved picks, Mar 28 2026):
+- BET tier:  15W/13L (53.6% WR) — working
+- STRONG BET: 10W/11L (47.6% WR) — UNDERPERFORMING, DISABLED ALL SPORTS
+  - Higher edge/confidence does NOT improve WR in current data
+  - STRONG BET adds noise, not signal — reverting to BET max for all sports
+  - Reenable only after 30+ STRONG BET picks at WR >60%
 
-Sport-specific calibration (38 resolved picks, cleaned of duplicates):
-- NBA: 67% WR (n=13, 8W/4L/1P) → reliable, standard thresholds
-- NHL: 50% WR (n=25, 12W/12L/1P) → BET max (no STRONG BET until WR >60% with n>=30)
-  - Note: Previous 46% WR was inflated by duplicate entries — true WR is 50%
+Sport-specific calibration (52 resolved picks, cleaned of duplicates):
+- NBA: BET 4W/2L (67% WR, n=7) | STRONG BET 4W/5L (44%, n=9) → STRONG BET DISABLED
+- NHL: BET 11W/11L (50% WR, n=23) | STRONG BET 6W/6L (50%, n=13) → STRONG BET DISABLED
+- MLB: NO DATA (season starts Mar 28 2026) → STRICT thresholds (early-season edge inflation)
+  - Early-season expert panels are small → consensus artificially inflates edge
+  - STRONG BET disabled; BET requires 35%+ edge + 82% confidence until 30+ picks resolved
 
-Updated: 2026-03-24
+Updated: 2026-03-28 (STRONG BET disabled across all sports — 47.6% WR < BET tier 53.6% WR)
 """
 
 from dataclasses import dataclass, field
@@ -192,41 +196,44 @@ class ConfidenceScorer:
         
         return round(min(max(final, 0), 100), 1)
     
-    # Sport-specific thresholds (calibrated from live results 2026-03-24)
-    # NBA: 67% WR (6W/3L) → standard thresholds
-    # NHL: 50% WR (12W/12L) → cap at BET max, no STRONG BET until sample >= 30
-    # Sample sizes: NBA=13, NHL=25 resolved picks
+    # Sport-specific thresholds (calibrated from live results 2026-03-28)
+    # STRONG BET disabled all sports: 47.6% WR (10W/11L) — worse than BET tier (53.6%)
+    # BET tier working: NBA=67% WR (n=7), NHL=50% WR (n=23)
+    # Reenable STRONG BET only after: 30+ picks at WR >60% per sport
     SPORT_THRESHOLDS = {
         "NHL": {
             "strong_bet_edge": 999,  # DISABLED: NHL 50% WR at STRONG BET — not enough edge
             "strong_bet_conf": 999,  # Cap NHL at BET max until sample >= 30 with >60% WR
-            "bet_edge": 25,          # Stricter than NBA — 25% edge required for BET
+            "bet_edge": 25,          # Stricter — 25% edge required for BET
             "bet_conf": 75,
             "lean_edge": 15,
             "lean_conf": 65,
         },
         "NBA": {
-            "strong_bet_edge": 25,   # Standard thresholds (NBA 67% WR — reliable)
-            "strong_bet_conf": 75,
+            "strong_bet_edge": 999,  # DISABLED: NBA STRONG BET 44% WR (4W/5L) < BET 67% WR
+            "strong_bet_conf": 999,  # Reenable after 30+ picks at >60% WR
             "bet_edge": 15,
             "bet_conf": 65,
             "lean_edge": 8,
             "lean_conf": 55,
         },
-        # MLB: Opening Day 2026 = Mar 25. Using NBA thresholds as baseline.
-        # Calibrate after 30+ resolved picks (target: end of April).
+        # MLB: Opening Day 2026 = Mar 28. STRICT thresholds for early season.
+        # Issue: Early-season expert panels are small → consensus inflates edge artificially.
+        # Every game showing 30-40% edge on Day 1 = model miscalibration, NOT real edge.
+        # Action: Raise thresholds dramatically until 30+ resolved picks accumulate (~late April).
+        # STRONG BET disabled until WR data established.
         "MLB": {
-            "strong_bet_edge": 25,   # Baseline — recalibrate after 30+ picks
-            "strong_bet_conf": 75,
-            "bet_edge": 15,
-            "bet_conf": 65,
-            "lean_edge": 8,
-            "lean_conf": 55,
+            "strong_bet_edge": 999,  # DISABLED: No MLB WR data yet — early season inflation risk
+            "strong_bet_conf": 999,  # Reenable after 30+ picks with WR >65%
+            "bet_edge": 35,          # Strict: require 35% edge to cut through early-season noise
+            "bet_conf": 82,          # High confidence bar too
+            "lean_edge": 25,
+            "lean_conf": 75,
         },
-        # Default (other sports — use NBA thresholds until enough data)
+        # Default (other sports — STRONG BET disabled until WR data available)
         "DEFAULT": {
-            "strong_bet_edge": 25,
-            "strong_bet_conf": 75,
+            "strong_bet_edge": 999,  # DISABLED: No WR data for unknown sports
+            "strong_bet_conf": 999,
             "bet_edge": 15,
             "bet_conf": 65,
             "lean_edge": 8,
