@@ -11,11 +11,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy all application files
 COPY *.py ./
-COPY data/ ./data/
 COPY tests/ ./tests/
 
-# Create data directories
-RUN mkdir -p /data/config
+# Create data directories (data/ is runtime-generated, not in repo)
+RUN mkdir -p /app/data /data/config
 
 # Environment
 ENV PORT=8080
